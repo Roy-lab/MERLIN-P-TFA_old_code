@@ -63,8 +63,8 @@ class GraphLearner
 	//int setChIPGraph(const char*);
 	//int setBeta_ChIP(double bval);
 	int setPriorGraph_All(const char*);
-
 	int setDefaultModuleMembership(VariableManager* tempVarMngr);
+
 	int setDefaultModuleMembership(vector<string>* names);
 	int setDefaultModuleMembership(map<string,int>& moduleID);
 	int setPriorGraph_All(const char* netname, EdgeList* pnet, double b);
@@ -73,6 +73,8 @@ class GraphLearner
 
 	int setInitNet(EdgeList* i_n);
 
+	int setShouldLoad(bool f);
+	int setTopOutputDirName(const char* dirPath);
 	private:
 	
 	//map<int,INTDBLMAP*> edgePriors_Motif;
@@ -88,7 +90,6 @@ class GraphLearner
 	map <string,map<string,map<string,double>*>*> priorgraphmap;
 	map <string,EdgeList*> priorpointers;
 		
-	int printPLLScore();
 	double getInitPLLScore();
 	double getPLLScore();
 	double getInitPrior();
@@ -125,9 +126,22 @@ class GraphLearner
 	int getEdgeVars(string&, char*, char*);
 	bool checkMBSize(INTINTMAP*,int,int,int);
 	bool checkMBSize(int,int,int,int);
-	int populateGraphsFromFile();
+	int populateGraphsFromFile(const char* aFName);
 	int populateGraphsFromInput();
 	
+	int writeIterCnt(int currFold, int iter);
+	int readIterCnt(const char* aFName);
+	int doTar();
+	int readAddRemEdges(const char* aFName, map<string,int>& emap);
+	int writeAddRemEdges(const char* aFName, map<string,int>& emap);
+	map<string,int> resumeEdges;
+	double loadInitPLLScore();
+	int writePLLScore();
+	int loadLastUpdate();
+	int writeLastUpdate();
+
+
+
 	int normalizeWeight(INTDBLMAP&);
 	//Update the potentials to reflect the new covariance and mean estimates and also recompute the likelihood.
 	int updatePotentials();
@@ -175,6 +189,8 @@ class GraphLearner
 	bool preRandomizeSplit;
 	gsl_rng* rnd;
 	char outputDirName[1024];
+	char topOutputDirName[1024];
+
 	map<int,INTINTMAP*> datasetInd;
 	map<string,double> edgePresenceProb;
 	map<int,double> varNeighborhoodPrior;
@@ -200,6 +216,7 @@ class GraphLearner
 	map<string,int> variableStatus;
 	int currFold;
 	char foldoutDirName[1024];
+	bool shouldLoad;
 	int specificFold;
 	EdgeList* initnet;
 };

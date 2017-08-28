@@ -8,7 +8,14 @@ main (int argc, char **argv)
 	Framework* fw = new Framework;
 	if(fw->init(argc,argv)==0)
 	{
-		fw->start();
+		if (fw->shouldResume())
+		{
+			fw->resume();
+		}
+		else
+		{
+			fw->start();
+		}
 	}
 	delete fw;
 	return 0;

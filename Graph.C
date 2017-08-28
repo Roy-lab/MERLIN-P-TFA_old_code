@@ -217,7 +217,7 @@ Graph::writeNet(const char* oname)
 		Variable* vVar = tgtMngr->getVariableAt(i);
 		for (int j=0;j<col;j++)
 		{
-			Variable* uVar = tgtMngr->getVariableAt(j);
+			Variable* uVar = regMngr->getVariableAt(j);
 			double v = adjMat->getValue(i,j);
 			if (v != 0)
 			{

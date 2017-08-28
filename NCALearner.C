@@ -103,6 +103,7 @@ NCALearner::start()
 	for (int i=0;i<numRep;i++)
 	{
 		//cout << "Rand init " << i << endl;
+		//nca = new NCA(regMngr, tgtMngr, expMngr, priorNet, lambda, CV);
 		nca = new NCA(regMngr, tgtMngr, expMngr, priorNet, lambda, CV);
 
 		void** pptr = new void*[6];

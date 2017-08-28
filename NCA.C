@@ -1,4 +1,5 @@
 #include "NCA.H"
+#include <sys/time.h>
 #include <algorithm>
 
 NCA::NCA(VariableManager* rptr, VariableManager* gptr, EvidenceManager* dptr, Graph* pptr, double l, int cv)
@@ -222,6 +223,7 @@ NCA::estimateA()
 		}
 		else
 		{
+			cout << "CV for GENE " << i << endl;
 			varsel->weightedLASSO_CV(P0, Y, W0, B, CV);
 		}
 
@@ -251,11 +253,13 @@ NCA::estimate()
 	int itr=0;
 	while (v>0.0001)
 	{
-		Matrix* oldP = tfaMngr->getDataMat();
 		//fprintf(stdout,"iter: %d, err: %.4f (%.4f)\n", itr,v,v2);
-		//cout << "#TFs:" << regMngr->getVarCnt() << endl;
+		Matrix* oldP = tfaMngr->getDataMat();
+
 		estimateP();
+
 		estimateA();
+
 		Matrix* P  = tfaMngr->getDataMat();
 		Matrix* er = oldP->subtractMatrix(P);
 		v2 = er->getFNorm();

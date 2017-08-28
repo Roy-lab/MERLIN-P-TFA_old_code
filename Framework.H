@@ -23,7 +23,14 @@ public:
 	~Framework();
 	int init(int argc, char** argv);
 	int start();
+	int resume();
+	bool shouldResume();
 private:
+	bool lShouldResume;
+	bool lResumeMERLIN;
+	int  resIter;//resume iteration
+	bool doNextStep(int itrNum, EdgeList*& newNet);
+	int readTFA(int itrNum);
 	VariableManager* regMngr;
 	VariableManager* tgtMngr;
 	VariableManager* allGenesMngr;
@@ -41,7 +48,7 @@ private:
 
 	int printHelp(char* name);
 
-	GraphLearner* getGL(int itrNum, int subNum, map<string,int>& geneModuleID, EdgeList* initNet);
+	GraphLearner* getGL(int itrNum, int subNum, map<string,int>& geneModuleID, EdgeList* initNet, bool sl);
 
 	static void* runOneGL(void* ptr);
 	
@@ -52,6 +59,7 @@ private:
 
 	map<string,int> moduleID;
 	int readClusters(char* aFName,map<string,int>& geneModuleID);
+	int writeClusters(char* aFName,map<string,int>& geneModuleID);
 };
 
 #endif //_FRAMEWORK

@@ -195,11 +195,23 @@ VariableSelection::weightedLASSO_CV(Matrix* X, Matrix* Y, Matrix* w, Matrix* bet
 	vector<double> allerrs;
 	//define lambdas
 	//for (int i=0;i<100;i++)
-	for (int i=1;i<50;i++)
-	{
-		ls.push_back(double(i)/1000.0);
-		allerrs.push_back(0);
-	}
+	//for (int i=1;i<50;i++)
+	//{
+	//	ls.push_back(double(i)/1000.0);
+	//	allerrs.push_back(0);
+	//}
+	ls.push_back(0.001);
+	allerrs.push_back(0);
+	ls.push_back(0.0025);
+	allerrs.push_back(0);
+	ls.push_back(0.005);
+	allerrs.push_back(0);
+	ls.push_back(0.0075);
+	allerrs.push_back(0);
+	ls.push_back(0.01);
+	allerrs.push_back(0);
+	ls.push_back(0.015);
+	allerrs.push_back(0);
 	sort(ls.begin(),ls.end(),greater<double>());
 
 	//unsigned long int delta=0;
@@ -285,7 +297,7 @@ VariableSelection::weightedLASSO_CV(Matrix* X, Matrix* Y, Matrix* w, Matrix* bet
 		}
 	}
 	//use the lambda on the whole data
-	//cout << "selected l: " << l << endl;
+	cout << "selected l: " << l << endl;
 	weightedLASSO_1L(X, Y, l, w, beta);
 	delete indices;
 	return 0;
@@ -329,5 +341,6 @@ VariableSelection::testBetas(Matrix* X, Matrix* Y, Matrix* betas, vector<double>
 		//cout << "e: " << e << endl;
 		errs->push_back(e);
 	}
+	delete Pred;
 	return 0;
 }

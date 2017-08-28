@@ -5,6 +5,7 @@
 #include <string.h>
 #include <math.h>
 #include <iostream>
+#include <algorithm>
 
 EdgeList::EdgeList()
 {
@@ -183,6 +184,60 @@ EdgeList::removeSuffix(const char* suff)
 }
 
 int
+EdgeList::readNet(const char* inname)
+{
+	deleteNet();
+	net = new NET_T;
+	net->clear();
+	ifstream inFile(inname);
+	char buffer[1024];
+	while(inFile.good())
+	{
+		inFile.getline(buffer,1023);
+		if(strlen(buffer)<=0)
+		{
+			continue;
+		}
+		string tfName;
+		string tgName;
+		double edgeStrength=0;
+		char* tok=strtok(buffer,"\t");
+		int tokCnt=0;
+		while(tok!=NULL)
+		{
+			if(tokCnt==0)
+			{
+				tfName.append(tok);
+			}
+			else if(tokCnt==1)
+			{
+				tgName.append(tok);
+			}
+			else if(tokCnt==2)
+			{
+				edgeStrength=atof(tok);
+			}
+			tok=strtok(NULL,"\t");
+			tokCnt++;
+		}
+		map<string,double>* elist = NULL;
+		if (net->find(tfName) == net->end())
+		{
+			elist = new map<string,double>;
+			elist->clear();
+			(*net)[tfName] = elist;
+		}
+		else
+		{
+			elist = (*net)[tfName];
+		}
+		(*elist)[tgName] = edgeStrength;
+	}
+	inFile.close();
+	return 0;
+}
+
+int
 EdgeList::writeNet(char* oname)
 {
 	ofstream oFile(oname);
@@ -314,6 +369,80 @@ EdgeList::setConsensus(vector<EdgeList*>* outnets)
 				(*rlist)[gname] = (*rlist)[gname]+(1.0/((double)osize));
 			}
 		}
+	}
+	return 0;
+}
+
+EdgeList*
+EdgeList::percentileRank()
+{
+	NET_T* cnet = new NET_T;
+	EdgeList* e = new EdgeList;
+	e->net = cnet;
+	cnet->clear();
+	for (auto eitr=net->begin();eitr!=net->end();eitr++)
+	{
+		string tf = eitr->first;
+		map<string,double>* elist = eitr->second;
+		map<string,double>* nelist = new map<string,double>;
+		rankeOneTF(elist,nelist);
+		(*cnet)[tf] = nelist;
+	}
+	return e;
+}
+
+int
+EdgeList::rankeOneTF(map<string,double>* elist, map<string,double>* nelist)
+{
+	vector<pair<string,double>> edges;
+	for (auto tgitr=elist->begin();tgitr!=elist->end();tgitr++)
+	{
+		pair<string,double> p(tgitr->first,tgitr->second);
+		edges.push_back(p);
+	}
+	customLess_T customLess;
+	sort(edges.begin(),edges.end(),customLess);
+	double currScore=edges[0].second;
+	map<string,double> edgeEqual;
+	for(int i=0;i<edges.size();i++)
+	{
+		double newScore=edges[i].second;
+		bool update=false;
+		if(newScore<currScore)
+		{
+			update=true;
+		}
+		if(update)
+		{
+			double lessScores=(double)(edges.size()-(i));
+			double percentilerank=(double)edgeEqual.size();
+			if(edgeEqual.size()>1)
+			{
+				percentilerank=0.5*percentilerank;
+			}
+			percentilerank=(lessScores+percentilerank)/((double)edges.size());
+			for(auto sIter=edgeEqual.begin();sIter!=edgeEqual.end();sIter++)
+			{
+				(*nelist)[sIter->first] = percentilerank;
+			}
+			edgeEqual.clear();
+			currScore=newScore;
+			edgeEqual[edges[i].first]=0;
+		}
+		else
+		{	
+			edgeEqual[edges[i].first]=0;
+		}
+	}	
+	double percentilerank=(double)edgeEqual.size();
+	if(edgeEqual.size()>1)
+	{
+		percentilerank=0.5*percentilerank;
+	}
+	percentilerank=percentilerank/((double)edges.size());
+	for(auto sIter=edgeEqual.begin();sIter!=edgeEqual.end();sIter++)
+	{
+		(*nelist)[sIter->first] = percentilerank;
 	}
 	return 0;
 }

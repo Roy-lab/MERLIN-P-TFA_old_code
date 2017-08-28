@@ -27,6 +27,9 @@ Framework::Framework()
 	beta=5;
 	numNcaRep=10;
 	numThread=1;
+	lShouldResume = false;
+	lResumeMERLIN = false;
+	resIter = -1;
 }
 
 Framework::~Framework()
@@ -41,8 +44,14 @@ Framework::~Framework()
 		delete priorNet;
 }
 
+bool
+Framework::shouldResume()
+{
+	return lShouldResume;
+}
+
 GraphLearner*
-Framework::getGL(int itrNum, int subNum, map<string,int>& geneModuleID, EdgeList* initNet)
+Framework::getGL(int itrNum, int subNum, map<string,int>& geneModuleID, EdgeList* initNet, bool sl)
 {
 	GraphLearner* glearner = new GraphLearner;
 	
@@ -71,7 +80,10 @@ Framework::getGL(int itrNum, int subNum, map<string,int>& geneModuleID, EdgeList
 	//glearner->setBeta1(-5);
 	glearner->setBeta1(sparsity);
 	//glearner->setBeta_Motif(4);
-	glearner->setBeta_Motif(0);//This is modularity
+	glearner->setBeta_Motif(4);//This is modularity
+
+	glearner->setShouldLoad(sl);
+	glearner->setTopOutputDirName(outdir);
 
 	EdgeList* cnet = pnet->copyMe();
 	//glearner->setPriorGraph_All("motif",cnet,5);
@@ -138,7 +150,7 @@ Framework::inferNetwork(int itrNum, EdgeList* initNet)
 		{
 			names[vset[j]->getName()] = moduleID[vset[j]->getName()];
 		}
-		GraphLearner* glearner = getGL(itrNum,ritr/rsize,names,initNet);
+		GraphLearner* glearner = getGL(itrNum,ritr/rsize,names,initNet,lResumeMERLIN);
 		void** pptr = new void*[4];
 		pptr[0] = (void*) thMgr;
 		pptr[1] = (void*) glearner;
@@ -148,8 +160,10 @@ Framework::inferNetwork(int itrNum, EdgeList* initNet)
 	}
 	thMgr->run();
 	delete thMgr;
-	EdgeList* newNet = new EdgeList;
-	newNet->setUnion(outnets);
+	EdgeList* unewNet = new EdgeList;
+	unewNet->setUnion(outnets);
+	EdgeList* newNet = unewNet->percentileRank();
+	delete unewNet;
 	moduleID.clear();
 	for (int i=0;i<outmods->size();i++)
 	{
@@ -161,6 +175,9 @@ Framework::inferNetwork(int itrNum, EdgeList* initNet)
 		delete omod;
 	}
 	outmods->clear();
+	char modoname[1024];
+	sprintf(modoname,"%s/module_%d.txt",outdir,itrNum);
+	writeClusters(modoname,moduleID);
 
 	char netoname[1024];
 	sprintf(netoname,"%s/merged_%d.txt",outdir,itrNum);
@@ -171,6 +188,12 @@ Framework::inferNetwork(int itrNum, EdgeList* initNet)
 		delete e;
 	}
 	delete outnets;
+
+	//TAR!!!
+	char tarCmd[1024];
+	sprintf(tarCmd,"tar cvzf %s.tar.gz %s",outdir,outdir);
+	system(tarCmd);
+
 	return newNet;
 }
 
@@ -220,6 +243,31 @@ Framework::isConverged(int itrNum, EdgeList* oldNet, EdgeList* newNet)
 	return false;
 }
 
+bool
+Framework::doNextStep(int itrNum, EdgeList*& newNet)
+{
+	MemoryCheck mc;
+	char message[1024];
+	EdgeList* oldNet = NULL;
+	oldNet = newNet;
+	mc.begin();
+	inferNCA(itrNum,oldNet);
+	mc.end();
+	sprintf(message,"inferNCA(%d)",itrNum);
+	mc.print(message);
+
+	mc.begin();
+	newNet = inferNetwork(itrNum,oldNet);
+	mc.end();
+	sprintf(message,"inferNetwork(%d)",itrNum);
+	mc.print(message);
+
+	bool conv = isConverged(itrNum,oldNet,newNet);
+	
+	delete oldNet;
+	return conv;
+}
+
 int
 Framework::start()
 {
@@ -237,31 +285,104 @@ Framework::start()
 	mc.begin();
 	inferNCA(itrNum,pnet);
 	mc.end();
-	mc.print("inferNCA");
+	mc.print("inferNCA(0)");
 
 	mc.begin();
 	EdgeList* newNet = NULL;
 	newNet = inferNetwork(itrNum, NULL);
 	EdgeList* oldNet = NULL;
 	mc.end();
-	mc.print("inferNetwork");
+	mc.print("inferNetwork(0)");
+
+	//return 0;
+	bool conv=false;
 
 	while(true)
 	{
 		itrNum++;
-		oldNet = newNet;
-		mc.begin();
-		inferNCA(itrNum,oldNet);
-		mc.end();
-		mc.print("inferNCA");
+		conv = doNextStep(itrNum,newNet);
+		if (conv)
+		{
+			break;
+		}
+	}
+	delete newNet;
+	return 0;
+}
 
-		mc.begin();
+int
+Framework::readTFA(int itrNum)
+{
+	char tfaname[1024];
+	sprintf(tfaname,"%s/%d/tfa.txt",outdir,itrNum);
+	VariableManager* oregMngr = new VariableManager;
+	oregMngr->readVariables(tfaname);
+	EvidenceManager* otfaMngr = new EvidenceManager;
+	otfaMngr->setVariableManager(oregMngr);
+	otfaMngr->loadEvidenceFromFile_Continuous(tfaname);
+
+	VariableManager* nregMngr = oregMngr->copyMeWithSuffix("_nca");
+	EvidenceManager* ntfaMngr = new EvidenceManager;
+	ntfaMngr->setVariableManager(nregMngr);
+	Matrix* mat = otfaMngr->getDataMat();
+	ntfaMngr->setDataMat(mat);
+	delete mat;
+
+	regMngr->mergeVarSets(nregMngr);
+	allGenesMngr->mergeVarSets(nregMngr);
+	allEvidMngr->updateEvidence(ntfaMngr);
+	delete ntfaMngr;
+	delete otfaMngr;
+	return 0;
+}
+
+int
+Framework::resume()
+{
+	int itrNum=resIter;
+	EdgeList* newNet = new EdgeList;
+	if(lResumeMERLIN)
+	{
+		readTFA(itrNum);
+		EdgeList* oldNet = NULL;
+		if(itrNum>0)
+		{
+			oldNet = new EdgeList;
+			char netoname[1024];
+			sprintf(netoname,"%s/merged_%d.txt",outdir,itrNum-1);
+			oldNet->readNet(netoname);
+		}
 		newNet = inferNetwork(itrNum,oldNet);
-		mc.end();
-		mc.print("inferNetwork");
-		bool conv = isConverged(itrNum,oldNet,newNet);
-		
-		delete oldNet;
+
+		if (oldNet!=NULL)
+		{
+			bool conv = isConverged(itrNum,oldNet,newNet);
+			if(conv)
+			{
+				delete newNet;
+				delete oldNet;
+				return 0;
+			}
+		}
+		lResumeMERLIN=false;
+	}
+	else
+	{
+		char modoname[1024];
+		sprintf(modoname,"%s/module_%d.txt",outdir,itrNum);
+		readClusters(modoname,moduleID);
+
+		char netoname[1024];
+		sprintf(netoname,"%s/merged_%d.txt",outdir,itrNum);
+		newNet->readNet(netoname);
+	}
+
+	bool conv=false;
+
+	while(true)
+	{
+		itrNum++;
+		conv = doNextStep(itrNum,newNet);
 		if (conv)
 		{
 			break;
@@ -274,6 +395,7 @@ Framework::start()
 int
 Framework::init(int argc, char** argv)
 {
+	
 	bool inputG=false;
 	bool inputR=false;
 	bool inputE=false;
@@ -295,7 +417,7 @@ Framework::init(int argc, char** argv)
 	opterr=1;
 	int oldoptind=optind;
 	int condCnt=1;
-	while(optret=getopt(argc,argv,"r:g:p:b:s:n:o:d:l:t:c:h")!=-1)
+	while(optret=getopt(argc,argv,"r:g:p:b:s:n:o:d:l:t:c:q:ha")!=-1)
 	{
 		if(optret=='?')
 		{
@@ -323,6 +445,17 @@ Framework::init(int argc, char** argv)
 			case 'o': //Output directory
 			{
 				strcpy(outdir,my_optarg);
+				for (int ii=strlen(outdir)-1;ii>=0;ii--)
+				{
+					if (outdir[ii]=='/')
+					{
+						outdir[ii]=0;
+					}
+					else
+					{
+						break;
+					}
+				}
 				inputO=true;
 				break;
 			}
@@ -360,6 +493,17 @@ Framework::init(int argc, char** argv)
 			{
 				CV = atoi(my_optarg);
 				inputC=true;
+				break;
+			}
+			case 'q':
+			{
+				resIter = atoi(my_optarg);
+				lShouldResume=true;
+				break;
+			}
+			case 'a':
+			{
+				lResumeMERLIN=true;
 				break;
 			}
 			case 'd':
@@ -492,6 +636,18 @@ Framework::init(int argc, char** argv)
 }
 
 int
+Framework::writeClusters(char* aFName, map<string,int>& geneModuleID)
+{
+	ofstream outFile(aFName);
+	for (auto itr=geneModuleID.begin();itr!=geneModuleID.end();itr++)
+	{
+		outFile << itr->first << "\t" << itr->second << endl;
+	}
+	outFile.close();
+	return 0;
+}
+
+int
 Framework::readClusters(char* aFName,map<string,int>& geneModuleID)
 {
 	geneModuleID.clear();
@@ -542,6 +698,8 @@ Framework::printHelp(char* name)
 	cerr << "-b\t\tBeta, importance of prior network in inference, higher means more important (default 5)" << endl;
 	cerr << "-n\t\tNumber of replicates for NCA (default 10)" << endl;
 	cerr << "-t\t\tNumber of threads, default 1" << endl;
+	cerr << "-q\t\tContinue from an incomplete run (of NCA), input is the last complete iteration" << endl;
+	cerr << "-a\t\tContinue from an incomplete run (of MERLIN) " << endl;
 	cerr << "-o\t\tOutput directory, it will over write existing files" << endl;
 	return 0;
 }

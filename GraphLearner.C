@@ -29,6 +29,7 @@
 
 GraphLearner::GraphLearner()
 {
+	shouldLoad = false;
 	convThreshold=0.0001;
 	restrictedFName[0]='\0';
 	trueGraphFName[0]='\0';
@@ -44,6 +45,7 @@ GraphLearner::GraphLearner()
 	addedEdges.clear();
 	priorpointers.clear();
 	priorgraphmap.clear();
+	resumeEdges.clear();
 }
 
 GraphLearner::~GraphLearner()
@@ -93,6 +95,13 @@ GraphLearner::~GraphLearner()
 	}
 	varNeighborhoodPrior.clear();
 	edgePresenceProb.clear();
+}
+
+int
+GraphLearner::setShouldLoad(bool f)
+{
+	shouldLoad = f;
+	return 0;
 }
 
 int
@@ -298,6 +307,13 @@ int
 GraphLearner::setVariableManager(VariableManager* aPtr)
 {
 	varManager=aPtr;
+	return 0;
+}
+
+int
+GraphLearner::setTopOutputDirName(const char* dirPath)
+{
+	strcpy(topOutputDirName,dirPath);
 	return 0;
 }
 
@@ -678,7 +694,7 @@ GraphLearner::doCrossValidation(int foldCnt)
 			char outputDir[1024];
 			sprintf(outputDir,"%s/fold%d",outLocMap[eIter->first].c_str(),f);
 			char foldOutputDirCmd[1024];
-			sprintf(foldOutputDirCmd,"mkdir %s",outputDir);
+			sprintf(foldOutputDirCmd,"mkdir -p %s",outputDir);
 			system(foldOutputDirCmd);
 		}
 		clearFoldSpecData();
@@ -840,8 +856,42 @@ GraphLearner::start_gradualMBIncrease(int f)
 	}
 	if(strlen(trueGraphFName)==0)
 	{
-		
-		double currGlobalScore=getInitPLLScore();
+		double currGlobalScore = 0;
+		int titer=-1;
+		if (shouldLoad)
+		{
+			cout << "Read modules..." << endl;
+			string& dirname=outLocMap[evMgrSet.begin()->first];
+			char mname[1024];
+			sprintf(mname,"%s/fold%d/modules.txt",dirname.c_str(),f);
+			readModuleMembership(mname);
+			cout << "Read networks..." << endl;
+			char fname[1024];
+			sprintf(fname,"%s/prediction_k%d.txt",foldoutDirName,currK+1);
+			populateGraphsFromFile(fname);
+			char aoname[1024];
+			sprintf(aoname,"%s/fold%d/added.txt",dirname.c_str(),f);
+			readAddRemEdges(aoname,addedEdges);
+			char roname[1024];
+			sprintf(roname,"%s/fold%d/removed.txt",dirname.c_str(),f);
+			readAddRemEdges(roname,removedEdges);
+			cout << "Read iterations..." << endl;
+			char iname[1024];
+			sprintf(iname,"%s/fold%d/iter.txt",dirname.c_str(),f);
+			titer = readIterCnt(iname);
+			cout << "TITER:" << titer << endl;
+			//for(map<string,int>::iterator mitr=geneModuleID.begin(); mitr!=geneModuleID.end();mitr++)
+			//{
+			//	variableStatus[mitr->first]=titer;
+			//}
+			currGlobalScore=loadInitPLLScore();
+			loadLastUpdate();
+		}
+		else
+		{
+			currGlobalScore=getInitPLLScore();
+		}
+
 		double initScore=getInitPrior();
 		//currGlobalScore=currGlobalScore+initScore;
 		int showid=0;
@@ -850,7 +900,7 @@ GraphLearner::start_gradualMBIncrease(int f)
 		vector<int> randOrder;
 		while(moduleiter<1 && notConvergedTop)
 		{
-			int iter=0;
+			int iter=titer+1;
 			bool notConverged=true;
 			while(notConverged && iter<50)
 			{
@@ -921,16 +971,16 @@ GraphLearner::start_gradualMBIncrease(int f)
 					}
 					sortMoves();
 					makeMoves();
-					double newScore=getPLLScore();
+					//double newScore=getPLLScore();
 					//double newImprScore=getPriorChange();
 					//newScore=newScore+newImprScore;
-					double diff=newScore-currGlobalScore;
-					if(diff<=convThreshold)
-					{
+					//double diff=newScore-currGlobalScore;
+					//if(diff<=convThreshold)
+					//{
 					//	notConverged=false;
-					}
+					//}
 					//dumpAllGraphs(currK,f,iter);
-					currGlobalScore=newScore;
+					//currGlobalScore=newScore;
 					//cout <<"Current iter " << iter << " Score after beta-theta " << newScore << endl;
 					for(map<int,INTINTMAP*>::iterator cIter=affectedVariables.begin();cIter!=affectedVariables.end();cIter++)
 					{
@@ -945,6 +995,8 @@ GraphLearner::start_gradualMBIncrease(int f)
 					//printf("Time elapsed for one var %uj secs %d microsec\n",(unsigned int)(endtime_v.tv_sec-begintime_v.tv_sec),(unsigned int)(endtime_v.tv_usec-begintime_v.tv_usec));
 				}
 				gettimeofday(&endtime,&endtimezone);
+				double newScore=getPLLScore();
+				currGlobalScore=newScore;
 				//printf("Time elapsed for all vars %d mins %d secs %d microsec\n", (unsigned int)(endtimezone.tz_minuteswest-begintimezone.tz_minuteswest), (unsigned int)(endtime.tv_sec-begintime.tv_sec,endtime.tv_usec-begintime.tv_usec));
 				if((currGlobalScore-scorePremodule)<=convThreshold)
 				{
@@ -954,17 +1006,27 @@ GraphLearner::start_gradualMBIncrease(int f)
 				{
 					redefineModules_Global();
 				}
-				iter++;
+
 				scorePremodule=currGlobalScore;
 				dumpAllGraphs(currK,f,iter);
+				writeIterCnt(f,iter);
+				writePLLScore();
+				writeLastUpdate();
+				string& dirname=outLocMap[evMgrSet.begin()->first];
+				char aoname[1024];
+				sprintf(aoname,"%s/fold%d/added.txt",dirname.c_str(),f);
+				writeAddRemEdges(aoname,addedEdges);
+				char roname[1024];
+				sprintf(roname,"%s/fold%d/removed.txt",dirname.c_str(),f);
+				writeAddRemEdges(roname,removedEdges);
+				doTar();
+				iter++;
 			}
 			moduleiter++;
 		}
 		cout <<"Final Score " << currGlobalScore << endl;
-		//printPLLScore();//For Debugging
 		finalScores[f]=currGlobalScore;
 	}
-	//cout << "### add: " << addmoves << ", rem: " << removemoves << endl;
 	return 0;
 }
 
@@ -1072,7 +1134,7 @@ GraphLearner::start_gradualMBIncrease_RankRegulators(int f)
 				}
 				else
 				{
-					//redefineModules_Global();
+					redefineModules_Global();
 				}
 				iter++;
 				scorePremodule=currGlobalScore;
@@ -1119,6 +1181,132 @@ GraphLearner::getTopRegs(map<int,int>& topRegs)
 	return 0;
 }
 
+int
+GraphLearner::loadLastUpdate()
+{
+	string& dirname=outLocMap[evMgrSet.begin()->first];
+	char aFName[1024];
+	sprintf(aFName,"%s/fold%d/last.txt",dirname.c_str(),currFold);
+	ifstream inFile(aFName);
+	char buffer[1024];
+	VSET& varSet=varManager->getVariableSet();
+	while(inFile.good())
+	{	
+		inFile.getline(buffer,1023);
+		if(strlen(buffer)<=0)
+		{
+			continue;
+		}
+		char* tok=strtok(buffer,"\t");
+		int tokCnt=0;
+		Variable* v=NULL;
+		int titer=0;
+		while(tok!=NULL)
+		{
+			if(tokCnt==0)
+			{
+				int vid=varManager->getVarID(tok);
+				v=varSet[vid];
+			}
+			else
+			{
+				titer=atoi(tok);
+			}
+			tok=strtok(NULL,"\t");
+			tokCnt++;
+		}
+		variableStatus[v->getName()]=titer;
+	}
+	return 0;
+}
+
+int
+GraphLearner::writeLastUpdate()
+{
+	string& dirname=outLocMap[evMgrSet.begin()->first];
+	char aFName[1024];
+	sprintf(aFName,"%s/fold%d/last.txt",dirname.c_str(),currFold);
+	ofstream outFile(aFName);
+	VSET& varSet=varManager->getVariableSet();
+	for(VSET_ITER vIter=varSet.begin();vIter!=varSet.end();vIter++)
+	{
+		Variable* var=varSet[vIter->first];
+		if(geneModuleID.find(var->getName())==geneModuleID.end())
+		{
+			continue;
+		}
+		outFile << var->getName() << "\t" << variableStatus[var->getName()] << endl;
+	}
+	outFile.close();
+	return 0;
+}
+
+double
+GraphLearner::loadInitPLLScore()
+{
+	double initScore=0;
+
+	string& dirname=outLocMap[evMgrSet.begin()->first];
+	char aFName[1024];
+	sprintf(aFName,"%s/fold%d/pll.txt",dirname.c_str(),currFold);
+	ifstream inFile(aFName);
+	char buffer[1024];
+	VSET& varSet=varManager->getVariableSet();
+	INTDBLMAP* plls=new INTDBLMAP;
+	currPLLMap[evMgrSet.begin()->first]=plls;
+	while(inFile.good())
+	{	
+		inFile.getline(buffer,1023);
+		if(strlen(buffer)<=0)
+		{
+			continue;
+		}
+		char* tok=strtok(buffer,"\t");
+		int tokCnt=0;
+		Variable* v=NULL;
+		double val=0;
+		while(tok!=NULL)
+		{
+			if(tokCnt==0)
+			{
+				int vid=varManager->getVarID(tok);
+				v=varSet[vid];
+			}
+			else
+			{
+				val=atof(tok);
+			}
+			tok=strtok(NULL,"\t");
+			tokCnt++;
+		}
+		(*plls)[v->getID()] = val;
+		initScore += val;
+	}
+	return initScore;
+}
+
+int
+GraphLearner::writePLLScore()
+{
+	string& dirname=outLocMap[evMgrSet.begin()->first];
+	char aFName[1024];
+	sprintf(aFName,"%s/fold%d/pll.txt",dirname.c_str(),currFold);
+	ofstream outFile(aFName);
+	VSET& varSet=varManager->getVariableSet();
+	INTDBLMAP* plls = currPLLMap[evMgrSet.begin()->first];
+	for(VSET_ITER vIter=varSet.begin();vIter!=varSet.end();vIter++)
+	{
+		Variable* var=varSet[vIter->first];
+		if(geneModuleID.find(var->getName())==geneModuleID.end())
+		{
+			continue;
+		}
+		double newPLL_s=(*plls)[vIter->first];
+		outFile << var->getName() << "\t" << newPLL_s << endl;
+	}
+	outFile.close();
+	return 0;
+}
 
 double
 GraphLearner::getInitPLLScore()
@@ -1135,6 +1323,10 @@ GraphLearner::getInitPLLScore()
 			continue;
 		}
 		Variable* var=varSet[vIter->first];
+		if(geneModuleID.find(var->getName())==geneModuleID.end())
+		{
+			continue;
+		}
 		double newPLL_s=getNewPLLScore_Condition(-1,vIter->first,NULL);
 		double priorScore=varNeighborhoodPrior[vIter->first];
 		(*plls)[vIter->first]=newPLL_s+priorScore;
@@ -1143,26 +1335,7 @@ GraphLearner::getInitPLLScore()
 	return initScore;
 }
 
-int
-GraphLearner::printPLLScore()
-{
-	VSET& varSet=varManager->getVariableSet();
-	for(map<int,INTDBLMAP*>::iterator eIter=currPLLMap.begin();eIter!=currPLLMap.end();eIter++)
-	{
-		//EvidenceManager* evMgr=eIter->second;
-		INTDBLMAP* plls=eIter->second;
-		for(INTDBLMAP_ITER dIter=plls->begin();dIter!=plls->end();dIter++)
-		{
-			double cscore = dIter->second;
-			string gname = varSet[dIter->first]->getName();
-			//if (gname == "YKL096W" || gname == "YGR249W" || gname == "YJL196C")
-			//{
-			//	cout << "@@@ " << gname << "\t" << cscore << endl;
-			//}
-		}
-	}
-	return 0;
-}
+
 
 double
 GraphLearner::getPLLScore()
@@ -2104,6 +2277,10 @@ GraphLearner::collectMoves(int currK,int rind)
 			{
 				continue;
 			}
+			if(resumeEdges.find(edgeKey)!=resumeEdges.end())
+			{
+				continue;
+			}
 			testedEdges[edgeKey]=0;
 			//Generate next condition assignments
 			if(edgeConditionMap.find(edgeKey)==edgeConditionMap.end())
@@ -2408,7 +2585,8 @@ GraphLearner::getNewPLLScore(int cid, INTINTMAP& conditionSet, Variable* u, Vari
 			Variable* aVar=varSet[mIter->first];
 			dPot->setAssocVariable(aVar,Potential::MARKOV_BNKT);
 			double eprior=getEdgePrior(mIter->first,v->getID());
-			double moduleContrib=getModuleContribLogistic((string&)v->getName(),(string&)u->getName());
+			//double moduleContrib=getModuleContribLogistic((string&)v->getName(),(string&)u->getName());
+			double moduleContrib=getModuleContribLogistic((string&)v->getName(),(string&)aVar->getName());
 			double edgeProb=1/(1+exp(-1*(eprior+moduleContrib)));
 			//double edgeProb=1/(1+exp(-1*(eprior)));
 			double edgeProbOld=1/(1+exp(-1*(eprior)));
@@ -2906,7 +3084,7 @@ GraphLearner::attemptRemoveMove(MetaMove* move,map<int,INTINTMAP*>& affectedVars
 	{
 		currIndegree=moduleIndegree[mID];
 	}
-	if(currIndegree->find(v->getName())==currIndegree->end())
+	if(currIndegree->find(u->getName())==currIndegree->end())
 	{
 		//Shouldnt happen, because we are removing an existing edge!
 	}
@@ -3027,7 +3205,7 @@ GraphLearner::attemptMove(MetaMove* move,map<int,INTINTMAP*>& affectedVars)
 	{
 		currIndegree=moduleIndegree[mID];
 	}
-	if(currIndegree->find(v->getName())==currIndegree->end())
+	if(currIndegree->find(u->getName())==currIndegree->end())
 	{
 		//cout <<"Adding new regulator " << u->getName() <<" to module " << mID << endl;
 		(*currIndegree)[u->getName()]=1;
@@ -3176,6 +3354,8 @@ GraphLearner::checkMBSize(int cid, int u,int v, int currK)
 int
 GraphLearner::populateGraphsFromInput()
 {
+	regulatorModuleOutdegree.clear();
+	moduleIndegree.clear();
 	VSET& varSet=varManager->getVariableSet();
 	NET_T* inet = initnet->getNet();
 	for(auto itr=inet->begin();itr!=inet->end();itr++)
@@ -3210,6 +3390,36 @@ GraphLearner::populateGraphsFromInput()
 				continue;
 			}
 			condSet[1]=1;
+
+			int mID=geneModuleID[v->getName()];
+			map<string,int>* currIndegree=NULL;
+			if(moduleIndegree.find(mID)==moduleIndegree.end())
+			{
+				currIndegree=new map<string,int>;
+				moduleIndegree[mID]=currIndegree;
+			}
+			else
+			{
+				currIndegree=moduleIndegree[mID];
+			}
+			if(currIndegree->find(u->getName())==currIndegree->end())
+			{
+				//cout <<"Adding new regulator " << u->getName() <<" to module " << mID << endl;
+				(*currIndegree)[u->getName()]=1;
+			}
+			else
+			{	
+				//cout <<"Updating regulator " << u->getName() <<" to module " << mID << endl;
+				(*currIndegree)[u->getName()]=(*currIndegree)[u->getName()]+1;
+			}
+			if(regulatorModuleOutdegree.find(u->getName())==regulatorModuleOutdegree.end())
+			{
+				regulatorModuleOutdegree[u->getName()]=1;
+			}
+			else
+			{
+				regulatorModuleOutdegree[u->getName()]=regulatorModuleOutdegree[u->getName()]+1;
+			}
 
 			for(INTINTMAP_ITER cIter=condSet.begin();cIter!=condSet.end();cIter++)
 			{
@@ -3279,9 +3489,11 @@ GraphLearner::populateGraphsFromInput()
 }
 
 int
-GraphLearner::populateGraphsFromFile()
+GraphLearner::populateGraphsFromFile(const char* aFName)
 {
-	ifstream inFile(trueGraphFName);
+	regulatorModuleOutdegree.clear();
+	moduleIndegree.clear();
+	ifstream inFile(aFName);
 	char buffer[1024];
 	VSET& varSet=varManager->getVariableSet();
 	while(inFile.good())
@@ -3298,7 +3510,7 @@ GraphLearner::populateGraphsFromFile()
 		INTINTMAP condSet;
 		for(map<int,EvidenceManager*>::iterator eIter=evMgrSet.begin();eIter!=evMgrSet.end();eIter++)
 		{
-			condSet[eIter->first]=0;
+			condSet[eIter->first]=1;
 		}
 		while(tok!=NULL)
 		{
@@ -3312,13 +3524,45 @@ GraphLearner::populateGraphsFromFile()
 				int vid=varManager->getVarID(tok);
 				v=varSet[vid];
 			}
+			/*
 			else
 			{
 				int cid=atoi(tok);
 				condSet[cid]=1;
 			}
+			*/
 			tok=strtok(NULL,"\t");
 			tokCnt++;
+		}
+
+		int mID=geneModuleID[v->getName()];
+		map<string,int>* currIndegree=NULL;
+		if(moduleIndegree.find(mID)==moduleIndegree.end())
+		{
+			currIndegree=new map<string,int>;
+			moduleIndegree[mID]=currIndegree;
+		}
+		else
+		{
+			currIndegree=moduleIndegree[mID];
+		}
+		if(currIndegree->find(u->getName())==currIndegree->end())
+		{
+			//cout <<"Adding new regulator " << u->getName() <<" to module " << mID << endl;
+			(*currIndegree)[u->getName()]=1;
+		}
+		else
+		{	
+			//cout <<"Updating regulator " << u->getName() <<" to module " << mID << endl;
+			(*currIndegree)[u->getName()]=(*currIndegree)[u->getName()]+1;
+		}
+		if(regulatorModuleOutdegree.find(u->getName())==regulatorModuleOutdegree.end())
+		{
+			regulatorModuleOutdegree[u->getName()]=1;
+		}
+		else
+		{
+			regulatorModuleOutdegree[u->getName()]=regulatorModuleOutdegree[u->getName()]+1;
 		}
 
 		/*string condKey;
@@ -3338,8 +3582,13 @@ GraphLearner::populateGraphsFromFile()
 			FactorGraph* fg=fgGraphSet[cIter->first];
 			SlimFactor* sFactor=fg->getFactorAt(u->getID());
 			SlimFactor* dFactor=fg->getFactorAt(v->getID());
-			sFactor->mergedMB[dFactor->fId]=0;
+			//sFactor->mergedMB[dFactor->fId]=0;
 			dFactor->mergedMB[sFactor->fId]=0;
+			string edgeKey;
+			edgeKey.append(u->getName().c_str());
+			edgeKey.append("\t");
+			edgeKey.append(v->getName().c_str());
+			resumeEdges[edgeKey]=0;
 		}
 	}
 	//Populate all the potentials of all the graphs
@@ -3953,4 +4202,89 @@ GraphLearner::getLearnedModule()
 		(*omod)[itr->first] = itr->second;
 	}
 	return omod;
+}
+
+int 
+GraphLearner::writeIterCnt(int currFold, int iter)
+{
+	string& dirname=outLocMap[evMgrSet.begin()->first];
+	char aFName[1024];
+	sprintf(aFName,"%s/fold%d/iter.txt",dirname.c_str(),currFold);
+	ofstream outFile(aFName);
+	outFile << iter << endl;
+	outFile.close();
+	return 0;
+}
+
+int
+GraphLearner::readIterCnt(const char* aFName)
+{
+	int iter = 0;
+	ifstream inFile(aFName);
+	inFile >> iter;
+	inFile.close();
+	return iter;
+}
+
+int
+GraphLearner::doTar()
+{
+	char tarCmd[1024];
+	sprintf(tarCmd,"tar cvzf %s.tar.gz %s",topOutputDirName,topOutputDirName);
+	system(tarCmd);
+	return 0;
+}
+
+int
+GraphLearner::writeAddRemEdges(const char* aFName, map<string,int>& emap)
+{
+	ofstream outFile(aFName);
+	for (map<string,int>::iterator eitr=emap.begin();eitr!=emap.end();eitr++)
+	{
+		outFile << eitr->first << endl;
+	}
+	outFile.close();
+	return 0;
+}
+
+int
+GraphLearner::readAddRemEdges(const char* aFName, map<string,int>& emap)
+{
+	ifstream inFile(aFName);
+	char buffer[1024];
+	VSET& varSet=varManager->getVariableSet();
+	while(inFile.good())
+	{	
+		inFile.getline(buffer,1023);
+		if(strlen(buffer)<=0)
+		{
+			continue;
+		}
+		char* tok=strtok(buffer,"\t");
+		int tokCnt=0;
+		Variable* u=NULL;
+		Variable* v=NULL;
+		while(tok!=NULL)
+		{
+			if(tokCnt==0)
+			{
+				int vid=varManager->getVarID(tok);
+				u=varSet[vid];
+			}
+			else if(tokCnt==1)
+			{
+				int vid=varManager->getVarID(tok);
+				v=varSet[vid];
+			}
+			tok=strtok(NULL,"\t");
+			tokCnt++;
+		}
+		string edgeKey;
+		edgeKey.append(u->getName().c_str());
+		edgeKey.append("\t");
+		edgeKey.append(v->getName().c_str());
+		emap[edgeKey]=0;
+	}
+	inFile.close();
+	return 0;
 }
