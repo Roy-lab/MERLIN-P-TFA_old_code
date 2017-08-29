@@ -36,22 +36,22 @@ then
 	if [ $j -gt -1 ] && [ -f ${out}/${j}/0/fold0/prediction_k300.txt ]
 	then
 		echo -e "\e[1mWas stopped in middle of MERLIN, resume MERLIN\e[0m"
-		time ./MERLINNCA -d ${exp} -r ${tfs} -g ${tgs} -p ${net} -l ${lam} -n10 -t 1 -q $j -a -o ${out} > ${out}/out.txt 
+		time ./MERLINNCA -d ${exp} -r ${tfs} -g ${tgs} -p ${net} -l ${lam} -n10 -t 1 -q $j -a -o ${out} >> ${out}/out.txt 
 	else
 		let j=j-1;
 		if [ $j -gt -1 ]
 		then 
 			echo -e "\e[1mWas stopped in middle of NCA, resume NCA\e[0m"
-			time ./MERLINNCA -d ${exp} -r ${tfs} -g ${tgs} -p ${net} -l ${lam} -n10 -t 1 -q $j -o ${out} > ${out}/out.txt 
+			time ./MERLINNCA -d ${exp} -r ${tfs} -g ${tgs} -p ${net} -l ${lam} -n10 -t 1 -q $j -o ${out} >> ${out}/out.txt 
 		else
 			echo -e "\e[1mStart over\e[0m"
 			mkdir ${out}
-			time ./MERLINNCA -d ${exp} -r ${tfs} -g ${tgs} -p ${net} -l ${lam} -n10 -t 1 -o ${out} > ${out}/out.txt
+			time ./MERLINNCA -d ${exp} -r ${tfs} -g ${tgs} -p ${net} -l ${lam} -n10 -t 1 -o ${out} >> ${out}/out.txt
 		fi
 	fi
 else
 	echo -e "\e[1mStart from scratch\e[0m"
 	mkdir ${out}
-	time ./MERLINNCA -d ${exp} -r ${tfs} -g ${tgs} -p ${net} -l ${lam} -n10 -t 1 -o ${out} > ${out}/out.txt
+	time ./MERLINNCA -d ${exp} -r ${tfs} -g ${tgs} -p ${net} -l ${lam} -n10 -t 1 -o ${out} >> ${out}/out.txt
 fi
 

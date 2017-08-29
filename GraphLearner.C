@@ -851,7 +851,10 @@ GraphLearner::start_gradualMBIncrease(int f)
 	if (initnet != NULL)
 	{
 		//cout << "Populate from init!" << endl;
-		populateGraphsFromInput();
+		if (!shouldLoad)
+		{
+			populateGraphsFromInput();
+		}
 		//makeInitMoves();
 	}
 	if(strlen(trueGraphFName)==0)
@@ -2121,6 +2124,10 @@ GraphLearner::collectRemoveMoves(int currK,int rind)
 			edgeKey.append(u->getName().c_str());
 			edgeKey.append("\t");
 			edgeKey.append(v->getName().c_str());
+			if (removedEdges.find(edgeKey) != removedEdges.end())
+			{
+				continue;
+			}
 			if (addedEdges.find(edgeKey) != addedEdges.end())
 			{
 				continue;
@@ -2269,6 +2276,10 @@ GraphLearner::collectMoves(int currK,int rind)
 			edgeKey.append("\t");
 			edgeKey.append(v->getName().c_str());
 
+			if (addedEdges.find(edgeKey) != addedEdges.end())
+			{
+				continue;
+			}
 			if (removedEdges.find(edgeKey) != removedEdges.end())
 			{
 				continue;
@@ -3027,7 +3038,7 @@ GraphLearner::attemptRemoveMove(MetaMove* move,map<int,INTINTMAP*>& affectedVars
 		//cout << "### didnt remove, affectedVars!" << endl;
 		return -1;
 	}
-	removedEdges[edgeKey];
+	removedEdges[edgeKey]=0;
 	//(*csVars)[move->getSrcVertex()]=0;
 	(*csVars)[move->getTargetVertex()]=0;
 	INTINTMAP* condset=condsetMap[csetind];
@@ -3432,6 +3443,11 @@ GraphLearner::populateGraphsFromInput()
 				SlimFactor* dFactor=fg->getFactorAt(v->getID());
 				//sFactor->mergedMB[dFactor->fId]=0;
 				dFactor->mergedMB[sFactor->fId]=0;
+				string edgeKey;
+				edgeKey.append(u->getName().c_str());
+				edgeKey.append("\t");
+				edgeKey.append(v->getName().c_str());
+				resumeEdges[edgeKey]=0;
 			}
 		}
 	}
